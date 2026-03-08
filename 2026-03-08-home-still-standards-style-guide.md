@@ -627,7 +627,75 @@ enum Commands {
 
 ---
 
-## 9. CI Conformance Checks
+## 9. Cross-Repo Local Development
+
+### 9.1 The Problem with Submodules for Active Development
+
+Do not add other Home Still tool repos as submodules inside `hs`. Submodules pin to a commit SHA and check out in detached HEAD. Developing a feature that touches both `paper-fetch` and `hs` simultaneously requires committing to `paper-fetch`, updating the submodule pointer in `hs`, and opening two coordinated PRs. For fast iteration this is unacceptable overhead.
+
+### 9.2 Cargo Path Overrides (the correct approach)
+
+Production `hs/Cargo.toml` uses git deps:
+
+```toml
+[dependencies]
+paper-fetch-core = { git = "https://github.com/home-still/paper-fetch" }
+librarian-core   = { git = "https://github.com/home-still/librarian" }
+pdf-mash-core    = { git = "https://github.com/home-still/pdf-mash" }
+```
+
+During local development, override any subset with local paths via `.cargo/config.toml` in the `hs` repo root. **This file is gitignored and never committed.**
+
+```toml
+# hs/.cargo/config.toml  ← gitignored
+[patch."https://github.com/home-still/paper-fetch"]
+paper-fetch-core = { path = "../../paper-fetch/crates/paper-fetch-core" }
+
+[patch."https://github.com/home-still/librarian"]
+librarian-core = { path = "../../librarian/crates/librarian-core" }
+```
+
+Add to `hs/.gitignore`:
+```
+.cargo/config.toml
+```
+
+### 9.3 Recommended Directory Layout for Local Development
+
+Clone all repos as siblings:
+
+```
+~/code/home-still/
+├── hs/                   ← unified CLI repo
+├── paper-fetch/          ← tool repo
+├── librarian/            ← tool repo
+├── pdf-mash/             ← tool repo
+└── hs-style/             ← shared library repo
+```
+
+With this layout the path overrides above work as-is. Any other layout requires adjusting the relative paths in `.cargo/config.toml`.
+
+### 9.4 Workflow
+
+```bash
+# Normal: hs uses pinned git deps, no local override needed
+cd ~/code/home-still/hs
+cargo build
+
+# Feature spanning paper-fetch and hs:
+# 1. Edit paper-fetch freely
+# 2. Add path override to hs/.cargo/config.toml (see 9.2)
+# 3. cargo build in hs — picks up local paper-fetch changes live
+# 4. When done, commit paper-fetch repo first
+# 5. Update git dep SHA in hs/Cargo.toml if needed
+# 6. Remove or leave the local override — it's gitignored either way
+```
+
+`hs-style` is still a submodule in each tool repo (it's a stable shared library, not co-developed constantly). The path override pattern is specifically for the `hs` → tool dependency during active feature work.
+
+---
+
+## 10. CI Conformance Checks
 
 ### 9.1 Required CI Jobs
 
@@ -763,6 +831,7 @@ When creating a new Home Still tool, verify each item before opening a PR:
 - [ ] `ci.yml` includes conformance job
 - [ ] `submodules: recursive` in checkout step
 - [ ] All conformance checks pass
+- [ ] 
 
 **`hs` integration**
 - [ ] Binary crate exposes `lib` feature with public `Commands` and `run()`
